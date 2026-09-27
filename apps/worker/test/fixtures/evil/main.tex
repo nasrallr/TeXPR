@@ -2,7 +2,7 @@
 \begin{document}
 % Each of these must fail harmlessly.
 \immediate\write18{touch /tmp/texpr-pwned-write18}
-\IfFileExists{/etc/passwd}{ABSOLUTE-READ-ALLOWED}{absolute read blocked}
+\IfFileExists{/proc/1/environ}{SERVER-ENV-READABLE}{server env blocked}
 \IfFileExists{leak.txt}{\input{leak.txt}}{symlink removed}
 Done.
 \end{document}

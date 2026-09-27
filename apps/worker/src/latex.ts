@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
 import { JobError } from "./errors.js";
-import { run, sandboxEnv } from "./sandbox.js";
+import { run, type Sandbox } from "./sandbox.js";
 
 export type Engine = "pdflatex" | "xelatex" | "lualatex";
 
@@ -14,20 +14,18 @@ export interface CompileResult {
 }
 
 /**
- * Unpack a GitHub tarball into `dest` (which the sandbox user owns), then
- * strip anything that could reach outside it or run code:
+ * Unpack a GitHub tarball into `dest` (which the sandbox owns), then strip
+ * anything that could reach outside it or run code:
  *   - symlinks (a repo could link to /proc/1/environ or /etc/…)
  *   - latexmkrc files (Perl that latexmk would execute; we also pass -norc)
  */
-export async function extractTarball(tarball: string, dest: string, home: string) {
-  const env = sandboxEnv(home);
+export async function extractTarball(tarball: string, dest: string, sandbox: Sandbox) {
   const limit = config.maxExtractedBytes;
 
   // Measure the uncompressed size first, reading at most limit+1 bytes, so a
   // gzip bomb can't fill the disk.
-  const size = await run("sh", ["-c", `gzip -dc -- "$1" | head -c ${limit + 1} | wc -c`, "sh", tarball], {
+  const size = await run(sandbox, "sh", ["-c", `gzip -dc -- "$1" | head -c ${limit + 1} | wc -c`, "sh", tarball], {
     cwd: dest,
-    env,
     timeoutMs: 60_000,
   });
   if (size.code !== 0 || size.timedOut) throw new JobError("internal", "Couldn't read the repo archive");
@@ -35,17 +33,17 @@ export async function extractTarball(tarball: string, dest: string, home: string
     throw new JobError("too_large", `Repo is over ${Math.round(limit / 1024 / 1024)}MB uncompressed`);
   }
 
-  const untar = await run("tar", ["-xzf", tarball, "-C", dest, "--strip-components=1", "--no-same-owner"], {
+  const untar = await run(sandbox, "tar", ["-xzf", tarball, "-C", dest, "--strip-components=1", "--no-same-owner"], {
     cwd: dest,
-    env,
     timeoutMs: 60_000,
   });
   if (untar.code !== 0) throw new JobError("internal", `Couldn't unpack the repo archive: ${untar.output.slice(-500)}`);
 
   const scrub = await run(
+    sandbox,
     "find",
     [dest, "(", "-type", "l", "-o", "-name", "latexmkrc", "-o", "-name", ".latexmkrc", ")", "-delete"],
-    { cwd: dest, env, timeoutMs: 30_000 },
+    { cwd: dest, timeoutMs: 30_000 },
   );
   if (scrub.code !== 0) throw new JobError("internal", "Couldn't clean the unpacked repo");
 }
@@ -74,16 +72,16 @@ const LATEXMK_ENGINE_FLAG: Record<Engine, string> = {
 };
 
 /** Compile `mainFile` (relative to `projectDir`) with latexmk. */
-export async function compile(projectDir: string, mainFile: string, home: string): Promise<CompileResult> {
+export async function compile(projectDir: string, mainFile: string, sandbox: Sandbox): Promise<CompileResult> {
   const abs = path.join(projectDir, mainFile);
   const cwd = path.dirname(abs);
   const file = path.basename(abs);
   const stem = file.replace(/\.tex$/i, "");
 
-  const head = readHead(abs);
-  const engine = detectEngine(head);
+  const engine = detectEngine(readHead(abs));
 
   const result = await run(
+    sandbox,
     "latexmk",
     [
       "-norc", // never run a repo's latexmkrc (it's Perl)
@@ -94,7 +92,7 @@ export async function compile(projectDir: string, mainFile: string, home: string
       LATEXMK_ENGINE_FLAG[engine],
       file,
     ],
-    { cwd, env: sandboxEnv(home), timeoutMs: config.compileTimeoutMs },
+    { cwd, timeoutMs: config.compileTimeoutMs },
   );
 
   const pdfPath = path.join(cwd, `${stem}.pdf`);
@@ -120,25 +118,21 @@ export async function latexdiff(
   baseDir: string,
   headDir: string,
   mainFile: string,
-  home: string,
+  sandbox: Sandbox,
 ): Promise<string> {
-  // latexdiff --flatten inlines \input files itself, outside TeX's openin_any
-  // guard, so refuse paths that would reach outside the checkout.
+  // latexdiff --flatten inlines \input files itself, outside TeX's own
+  // guards, so refuse paths that would reach outside the checkout.
   for (const dir of [baseDir, headDir]) {
-    const offender = findEscapingInclude(dir);
+    const offender = findEscapingInclude(dir, mainFile);
     if (offender) throw new JobError("unsupported", `${offender} includes a file outside the repo`);
   }
 
   const diffRel = path.posix.join(path.posix.dirname(mainFile), "texpr-diff.tex");
   const result = await run(
+    sandbox,
     "latexdiff",
     ["--flatten", path.relative(jobDir, path.join(baseDir, mainFile)), path.relative(jobDir, path.join(headDir, mainFile))],
-    {
-      cwd: jobDir,
-      env: sandboxEnv(home),
-      timeoutMs: config.latexdiffTimeoutMs,
-      stdoutFile: path.join(headDir, diffRel),
-    },
+    { cwd: jobDir, timeoutMs: config.latexdiffTimeoutMs, stdoutFile: path.join(headDir, diffRel) },
   );
   if (result.timedOut) throw new JobError("timeout", "latexdiff took too long", result.output.slice(-4000));
   if (result.code !== 0) throw new JobError("compile_failed", "latexdiff failed", result.output.slice(-4000));
@@ -146,9 +140,21 @@ export async function latexdiff(
 }
 
 const INCLUDE = /\\(?:input|include|subfile|subfileinclude|import|subimport)\s*\{([^}]*)\}/g;
+/** Files latexdiff might flatten: anything \input can name, including extensionless and templates' ".text". */
+const SCANNED = /(?:\.(?:tex|text|ltx|sty|cls|def|cfg|inc|txt)|\/[^./]+)$/i;
 
-/** First .tex file (repo-relative) with an \input-style path that is absolute, home-relative, or climbs with "..". */
-function findEscapingInclude(root: string): string | undefined {
+/**
+ * First file (repo-relative) with an \input-style path that leaves `root`.
+ * Relative paths are resolved against both the including file's folder and
+ * the main file's folder (TeX uses the latter), and both must stay inside.
+ */
+function findEscapingInclude(root: string, mainFile: string): string | undefined {
+  const mainDir = path.dirname(path.join(root, mainFile));
+  const inside = (p: string) => {
+    const rel = path.relative(root, p);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+
   const stack = [root];
   let seen = 0;
   while (stack.length > 0) {
@@ -157,15 +163,21 @@ function findEscapingInclude(root: string): string | undefined {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         stack.push(full);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".tex")) {
-        if (++seen > 5000) throw new JobError("too_large", "Repo has too many .tex files");
-        const text = fs.readFileSync(full, "utf8");
-        for (const [, arg] of text.matchAll(INCLUDE)) {
-          const p = arg.trim();
-          if (p.startsWith("/") || p.startsWith("~") || p.split(/[\\/]/).includes("..")) {
-            return path.relative(root, full).replaceAll("\\", "/");
-          }
-        }
+        continue;
+      }
+      if (!entry.isFile() || !SCANNED.test(full.replaceAll("\\", "/"))) continue;
+      if (++seen > 5000) throw new JobError("too_large", "Repo has too many source files");
+      if (fs.statSync(full).size > 2 * 1024 * 1024) continue;
+
+      const text = fs.readFileSync(full, "utf8");
+      for (const [, arg] of text.matchAll(INCLUDE)) {
+        const p = arg.trim();
+        const escapes =
+          p.startsWith("/") ||
+          p.startsWith("~") ||
+          !inside(path.resolve(path.dirname(full), p)) ||
+          !inside(path.resolve(mainDir, p));
+        if (escapes) return path.relative(root, full).replaceAll("\\", "/");
       }
     }
   }

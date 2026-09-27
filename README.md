@@ -62,8 +62,8 @@ hits included.
 
 Repos are untrusted input. Each compile:
 
-- runs as an unprivileged `sandbox` user that can't read the server's memory or secrets
-- has shell escape off, and TeX may not read or write absolute paths, `..` or dotfiles
+- runs as its own unprivileged user (one per concurrent job) in a folder only that user can open, so it can't read the server's secrets or another job's repo
+- has shell escape off; TeX may not write outside the project (reads with `..` are allowed, since templates like McMaster's capstone one `input{../Common.text}`)
 - never runs a repo's `latexmkrc` (`-norc`, and the files are deleted), and symlinks are deleted after unpacking
 - has size caps on the download and the unpacked repo, and a 90s time limit
 - can't reach the network through URL-fetching tools (dead proxy)

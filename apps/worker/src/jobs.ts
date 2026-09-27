@@ -6,7 +6,7 @@ import { config } from "./config.js";
 import { JobError } from "./errors.js";
 import { assertCanRead, downloadTarball } from "./github.js";
 import { assertMainFile, compile, extractTarball, latexdiff, type Engine } from "./latex.js";
-import { makeSandboxDir } from "./sandbox.js";
+import { makeSandboxDir, sandboxFor, type Sandbox } from "./sandbox.js";
 
 /** Bump when compile behaviour changes, so old cached PDFs are ignored. */
 const CACHE_VERSION = 1;
@@ -26,7 +26,7 @@ interface CacheMeta {
 export async function buildPdf(rev: RepoRevision, mainFile: string, token: string | undefined): Promise<Artifact> {
   await assertCanRead(rev, token);
   const key = cacheKey(["build", ...revKey(rev), mainFile]);
-  return cachedOrRun(key, (jobDir, home) => runBuild(jobDir, home, rev, mainFile, token));
+  return cachedOrRun(key, (jobDir, sandbox) => runBuild(jobDir, sandbox, rev, mainFile, token));
 }
 
 export async function diffPdf(
@@ -37,19 +37,19 @@ export async function diffPdf(
 ): Promise<Artifact> {
   await Promise.all([assertCanRead(base, token), assertCanRead(head, token)]);
   const key = cacheKey(["diff", ...revKey(base), ...revKey(head), mainFile]);
-  return cachedOrRun(key, (jobDir, home) => runDiff(jobDir, home, base, head, mainFile, token));
+  return cachedOrRun(key, (jobDir, sandbox) => runDiff(jobDir, sandbox, base, head, mainFile, token));
 }
 
-async function runBuild(jobDir: string, home: string, rev: RepoRevision, mainFile: string, token: string | undefined) {
+async function runBuild(jobDir: string, sandbox: Sandbox, rev: RepoRevision, mainFile: string, token: string | undefined) {
   const src = path.join(jobDir, "src");
-  await checkout(rev, token, jobDir, src, home);
+  await checkout(rev, token, src, sandbox);
   assertMainFile(src, mainFile);
-  return compile(src, mainFile, home);
+  return compile(src, mainFile, sandbox);
 }
 
 async function runDiff(
   jobDir: string,
-  home: string,
+  sandbox: Sandbox,
   base: RepoRevision,
   head: RepoRevision,
   mainFile: string,
@@ -57,19 +57,19 @@ async function runDiff(
 ) {
   const baseDir = path.join(jobDir, "base");
   const headDir = path.join(jobDir, "head");
-  await Promise.all([checkout(base, token, jobDir, baseDir, home), checkout(head, token, jobDir, headDir, home)]);
+  await Promise.all([checkout(base, token, baseDir, sandbox), checkout(head, token, headDir, sandbox)]);
   assertMainFile(baseDir, mainFile);
   assertMainFile(headDir, mainFile);
-  const diffFile = await latexdiff(jobDir, baseDir, headDir, mainFile, home);
-  return compile(headDir, diffFile, home);
+  const diffFile = await latexdiff(jobDir, baseDir, headDir, mainFile, sandbox);
+  return compile(headDir, diffFile, sandbox);
 }
 
-async function checkout(rev: RepoRevision, token: string | undefined, jobDir: string, dest: string, home: string) {
+async function checkout(rev: RepoRevision, token: string | undefined, dest: string, sandbox: Sandbox) {
   const tarball = `${dest}.tar.gz`;
   await downloadTarball(rev, token, tarball);
-  makeSandboxDir(dest);
+  makeSandboxDir(dest, sandbox);
   try {
-    await extractTarball(tarball, dest, home);
+    await extractTarball(tarball, dest, sandbox);
   } finally {
     fs.rmSync(tarball, { force: true });
   }
@@ -81,7 +81,7 @@ const inflight = new Map<string, Promise<Artifact>>();
 
 async function cachedOrRun(
   key: string,
-  work: (jobDir: string, home: string) => Promise<{ pdfPath: string; engine: Engine; hadErrors: boolean }>,
+  work: (jobDir: string, sandbox: Sandbox) => Promise<{ pdfPath: string; engine: Engine; hadErrors: boolean }>,
 ): Promise<Artifact> {
   const hit = readCache(key);
   if (hit) return hit;
@@ -90,13 +90,13 @@ async function cachedOrRun(
   const running = inflight.get(key);
   if (running) return running;
 
-  const promise = withSlot(async () => {
+  const promise = withSlot(async (slot) => {
     const jobDir = path.join(config.jobsDir, crypto.randomUUID());
-    const home = path.join(jobDir, "home");
-    makeSandboxDir(jobDir);
-    makeSandboxDir(home);
+    const sandbox = sandboxFor(slot, path.join(jobDir, "home"));
+    makeSandboxDir(jobDir, sandbox);
+    makeSandboxDir(sandbox.home, sandbox);
     try {
-      const result = await work(jobDir, home);
+      const result = await work(jobDir, sandbox);
       return writeCache(key, result.pdfPath, { engine: result.engine, hadErrors: result.hadErrors });
     } catch (err) {
       // A compile failure is deterministic for a given commit, so remember it.
@@ -149,23 +149,23 @@ function cacheKey(parts: string[]): string {
   return crypto.createHash("sha256").update(JSON.stringify([CACHE_VERSION, ...parts])).digest("hex");
 }
 
-let active = 0;
-const waiting: Array<() => void> = [];
+/** Free slot numbers. A slot number picks the job's sandbox uid, so concurrent jobs never share one. */
+const freeSlots = Array.from({ length: config.maxConcurrentJobs }, (_, i) => i);
+const waiting: Array<(slot: number) => void> = [];
 
 /** Run at most MAX_JOBS compiles at once; beyond MAX_QUEUED_JOBS waiting, refuse. */
-async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (active < config.maxConcurrentJobs) {
-    active++;
-  } else {
+async function withSlot<T>(fn: (slot: number) => Promise<T>): Promise<T> {
+  let slot = freeSlots.pop();
+  if (slot === undefined) {
     if (waiting.length >= config.maxQueuedJobs) throw new JobError("busy", "Too many compiles running, try again shortly");
-    // The finishing job hands its slot straight to us, so `active` doesn't change.
-    await new Promise<void>((resolve) => waiting.push(resolve));
+    // A finishing job hands its slot straight to us.
+    slot = await new Promise<number>((resolve) => waiting.push(resolve));
   }
   try {
-    return await fn();
+    return await fn(slot);
   } finally {
     const next = waiting.shift();
-    if (next) next();
-    else active--;
+    if (next) next(slot);
+    else freeSlots.push(slot);
   }
 }
