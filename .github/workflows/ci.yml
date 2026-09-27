@@ -18,3 +18,23 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+
+  worker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          tags: texpr-worker
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: npm run selftest -w @texpr/worker

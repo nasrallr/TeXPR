@@ -1,0 +1,8 @@
+\documentclass{article}
+\begin{document}
+% Each of these must fail harmlessly.
+\immediate\write18{touch /tmp/texpr-pwned-write18}
+\IfFileExists{/etc/passwd}{ABSOLUTE-READ-ALLOWED}{absolute read blocked}
+\IfFileExists{leak.txt}{\input{leak.txt}}{symlink removed}
+Done.
+\end{document}

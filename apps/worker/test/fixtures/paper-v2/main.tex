@@ -1,0 +1,20 @@
+\documentclass{article}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\title{A Short Note on Sorting Algorithms}
+\author{TeXPR Test}
+\begin{document}
+\maketitle
+\input{sections/intro}
+\section{Method}
+We use merge sort, which runs in $O(n \log n)$ time in the worst case.
+\begin{equation}
+  T(n) = 2T(n/2) + \Theta(n)
+\end{equation}
+As shown by \cite{knuth}, this bound is optimal for comparison sorts.
+\section{Conclusion}
+Merge sort is a safe default when stability matters.
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}

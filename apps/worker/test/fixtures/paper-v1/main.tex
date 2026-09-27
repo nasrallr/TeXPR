@@ -1,0 +1,18 @@
+\documentclass{article}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\title{A Short Note on Sorting}
+\author{TeXPR Test}
+\begin{document}
+\maketitle
+\input{sections/intro}
+\section{Method}
+We use merge sort, which runs in $O(n \log n)$ time.
+\begin{equation}
+  T(n) = 2T(n/2) + O(n)
+\end{equation}
+As shown by \cite{knuth}, this is optimal for comparison sorts.
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}

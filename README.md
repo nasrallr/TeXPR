@@ -36,11 +36,38 @@ npm run dev:worker   # http://localhost:8080/health
 Copy `apps/web/.env.example` to `apps/web/.env.local` and fill in the GitHub
 OAuth credentials.
 
-Worker image (build from the repo root):
+Worker image (build from the repo root, first build takes ~5 min):
 
 ```sh
 docker build -f apps/worker/Dockerfile -t texpr-worker .
-docker run -p 8080:8080 texpr-worker
+docker run -p 8080:8080 -e WORKER_SECRET=devsecret texpr-worker
+npm run selftest -w @texpr/worker   # compiles the fixtures inside the image
 ```
+
+## Worker API
+
+All routes except `/health` need `Authorization: Bearer $WORKER_SECRET`. Pass the
+user's GitHub token (for private repos) as `X-GitHub-Token`.
+
+| Route | Body | Returns |
+| --- | --- | --- |
+| `POST /build` | `{ revision: { owner, repo, sha }, mainFile }` | the compiled PDF |
+| `POST /diff` | `{ base, head, mainFile }` | latexdiff PDF (changes in red/blue) |
+
+Errors are JSON `{ error, message, log? }` (see `packages/shared`). Results are
+cached by commit SHA; access to the repo is re-checked on every request, cache
+hits included.
+
+## Security model (worker)
+
+Repos are untrusted input. Each compile:
+
+- runs as an unprivileged `sandbox` user that can't read the server's memory or secrets
+- has shell escape off, and TeX may not read or write absolute paths, `..` or dotfiles
+- never runs a repo's `latexmkrc` (`-norc`, and the files are deleted), and symlinks are deleted after unpacking
+- has size caps on the download and the unpacked repo, and a 90s time limit
+- can't reach the network through URL-fetching tools (dead proxy)
+
+`test/fixtures/evil*` check these in CI.
 
 Checks: `npm run typecheck`, `npm run lint`, `npm run build`.

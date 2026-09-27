@@ -1,0 +1,8 @@
+\documentclass{article}
+\begin{document}
+% Writing outside the project must be refused (TeX treats that as fatal).
+\newwrite\out
+\immediate\openout\out=../escaped.txt
+\immediate\write\out{escaped}
+\immediate\closeout\out
+\end{document}

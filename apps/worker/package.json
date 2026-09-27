@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire}from\\\"node:module\\\";const require=createRequire(import.meta.url);\"",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "selftest": "node test/run-selftest.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1",
@@ -17,6 +18,7 @@
     "@texpr/shared": "*",
     "@types/node": "^22",
     "tsx": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "esbuild": "^0.25.0"
   }
 }
