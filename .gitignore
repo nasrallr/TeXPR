@@ -1,0 +1,21 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+.env
+.env*.local
+
+.vercel/
+.DS_Store
+npm-debug.log*
+
+# LaTeX build output
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
