@@ -12,7 +12,7 @@ type Props = PageProps<"/[owner]/[repo]/pull/[number]/[[...rest]]">;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { owner, repo, number } = await params;
-  return { title: `${owner}/${repo}#${number} · TeXPR` };
+  return { title: `${owner}/${repo}#${number} · TeXPRs` };
 }
 
 const VIEWS: View[] = ["split", "overlay", "changes", "after"];
@@ -48,7 +48,7 @@ export default async function PullPage({ params, searchParams }: Props) {
     return (
       <Shell pr={pr}>
         <Notice title="No LaTeX document found">
-          TeXPR couldn&apos;t find a <code>.tex</code> file with <code>\documentclass</code> in this pull request. If the
+          TeXPRs couldn&apos;t find a <code>.tex</code> file with <code>\documentclass</code> in this pull request. If the
           main file is somewhere unusual, add a <code>.texpr.json</code> file to the repo:{" "}
           <code>{`{ "main": "path/to/main.tex" }`}</code>
         </Notice>

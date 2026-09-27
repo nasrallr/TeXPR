@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TeXPR",
+  title: "TeXPRs",
   description: "View and compare the compiled PDFs of LaTeX pull requests on GitHub.",
 };
 

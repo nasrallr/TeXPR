@@ -1,12 +1,14 @@
-# TeXPR
+# TeXPRs
+
+Live at **[texprs.com](https://texprs.com)**.
 
 View the compiled PDF of a LaTeX pull request on GitHub, and compare it with the
 base branch, without checking out the branch.
 
-Swap `github.com` for the TeXPR domain in any PR link:
+Swap `github.com` for `texprs.com` in any PR link:
 
 ```
-github.com/owner/repo/pull/12  →  texpr.dev/owner/repo/pull/12
+github.com/owner/repo/pull/12  →  texprs.com/owner/repo/pull/12
 ```
 
 Planned views: side by side (synced scrolling), overlay/flicker, and a
