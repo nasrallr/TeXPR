@@ -29,8 +29,27 @@ ${path}`).digest("hex");
   return value;
 }
 
+/** Status used for "couldn't reach GitHub at all" (dropped connection, DNS, TLS). */
+export const NETWORK_ERROR = 503;
+
+/**
+ * GET with retries for connection-level failures (a reset during the TLS
+ * handshake, a DNS hiccup). HTTP error responses are returned, not retried.
+ */
+async function getWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const attempts = 3;
+  for (let i = 1; ; i++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      if (i >= attempts) throw new GitHubError(NETWORK_ERROR, `Couldn't reach GitHub: ${String((err as Error).cause ?? err)}`);
+      await new Promise((r) => setTimeout(r, 300 * i));
+    }
+  }
+}
+
 async function gh<T>(path: string, token: string | undefined): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await getWithRetry(`${API}${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
@@ -144,7 +163,7 @@ export async function readFile(
   token: string | undefined,
 ): Promise<string | undefined> {
   const encoded = path.split("/").map(encodeURIComponent).join("/");
-  const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${sha}/${encoded}`, {
+  const res = await getWithRetry(`https://raw.githubusercontent.com/${owner}/${repo}/${sha}/${encoded}`, {
     headers: { "User-Agent": "texpr", ...(token ? { Authorization: `token ${token}` } : {}) },
     cache: "no-store",
   });

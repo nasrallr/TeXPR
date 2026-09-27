@@ -18,6 +18,19 @@ function headers(token: string | undefined): Record<string, string> {
   };
 }
 
+/** GET with retries for connection-level failures (dropped TLS handshake, DNS hiccup). */
+async function getWithRetry(url: string, init: RequestInit): Promise<Response> {
+  const attempts = 3;
+  for (let i = 1; ; i++) {
+    try {
+      return await fetch(url, init);
+    } catch {
+      if (i >= attempts) throw new JobError("busy", "Couldn't reach GitHub, try again shortly");
+      await new Promise((r) => setTimeout(r, 300 * i));
+    }
+  }
+}
+
 function label(rev: RepoRevision) {
   return `${rev.owner}/${rev.repo}@${rev.sha.slice(0, 7)}`;
 }
@@ -46,7 +59,7 @@ const accessCache = new Map<string, number>();
 const ACCESS_TTL_MS = 10 * 60 * 1000;
 
 async function checkAccess(rev: RepoRevision, token: string | undefined) {
-  const res = await fetch(`${API}/repos/${rev.owner}/${rev.repo}/commits/${rev.sha}`, {
+  const res = await getWithRetry(`${API}/repos/${rev.owner}/${rev.repo}/commits/${rev.sha}`, {
     method: "GET",
     headers: headers(token),
   });
@@ -71,7 +84,7 @@ export async function downloadTarball(rev: RepoRevision, token: string | undefin
   const url = token
     ? `${API}/repos/${rev.owner}/${rev.repo}/tarball/${rev.sha}`
     : `https://codeload.github.com/${rev.owner}/${rev.repo}/tar.gz/${rev.sha}`;
-  const res = await fetch(url, { headers: headers(token), redirect: "follow" });
+  const res = await getWithRetry(url, { headers: headers(token), redirect: "follow" });
   if (!res.ok || !res.body) {
     throw new JobError(
       res.status === 404 ? "not_found" : "internal",

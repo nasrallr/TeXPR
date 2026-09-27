@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Viewer, type View } from "@/components/pdf/Viewer";
 import { Notice, SignInLink } from "@/components/Notice";
-import { getChangedFiles, getPull, getTree, GitHubError, type PullInfo } from "@/lib/github";
+import { getChangedFiles, getPull, getTree, GitHubError, NETWORK_ERROR, type PullInfo } from "@/lib/github";
 import { findDocuments, type Document } from "@/lib/mainfile";
 import { getSession } from "@/lib/session";
 import { env } from "@/lib/env";
@@ -192,6 +192,13 @@ function LoadError({ err, signedIn, canSeePrivate, returnTo }: { err: unknown; s
       <Notice title="GitHub rate limit reached">
         GitHub limits how often signed-out visitors can load data.{" "}
         {signedIn ? "Try again in a few minutes." : <><SignInLink returnTo={returnTo}>Sign in with GitHub</SignInLink> to keep going.</>}
+      </Notice>
+    );
+  }
+  if (err instanceof GitHubError && err.status === NETWORK_ERROR) {
+    return (
+      <Notice title="Couldn't reach GitHub">
+        The connection to GitHub dropped, or GitHub is having trouble. <a href={returnTo} className="font-medium text-zinc-900 underline underline-offset-2 dark:text-zinc-100">Try again</a>.
       </Notice>
     );
   }
