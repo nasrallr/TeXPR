@@ -4,11 +4,13 @@ import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
 import { WORKER_HEADERS } from "@texpr/shared";
 import { config } from "./config.js";
 import { JobError } from "./errors.js";
 import { buildPdf, diffPdf, type Artifact } from "./jobs.js";
 import { canDropPrivileges } from "./sandbox.js";
+import { openTicket } from "./ticket.js";
 import { parseBuild, parseDiff } from "./validate.js";
 
 if (config.production && !config.secret) {
@@ -35,6 +37,18 @@ app.post("/build", async (c) => {
 app.post("/diff", async (c) => {
   const req = parseDiff(await readJson(c));
   return sendPdf(c, await diffPdf(req.base, req.head, req.mainFile, githubToken(c)));
+});
+
+// Browsers fetch PDFs directly with a ticket from the web app. The ticket is
+// the credential (no cookies), so any origin may read the response.
+app.use("/pdf", cors({ origin: "*", allowMethods: ["GET"], exposeHeaders: Object.values(WORKER_HEADERS) }));
+app.get("/pdf", async (c) => {
+  const ticket = await openTicket(c.req.query("t"));
+  const artifact =
+    ticket.kind === "build"
+      ? await buildPdf(ticket.revision, ticket.mainFile, ticket.token)
+      : await diffPdf(ticket.base, ticket.head, ticket.mainFile, ticket.token);
+  return sendPdf(c, artifact);
 });
 
 app.onError((err, c) => {
@@ -69,6 +83,8 @@ function sendPdf(c: Context, artifact: Artifact) {
   const stream = Readable.toWeb(fs.createReadStream(artifact.pdfPath)) as ReadableStream;
   return c.body(stream, 200, {
     "content-type": "application/pdf",
+    // Could be from a private repo: browsers only, never shared caches.
+    "cache-control": "private, max-age=3600",
     "content-length": String(fs.statSync(artifact.pdfPath).size),
     [WORKER_HEADERS.cache]: artifact.cache,
     [WORKER_HEADERS.hadErrors]: artifact.hadErrors ? "1" : "0",

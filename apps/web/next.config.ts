@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Shared types/constants are TypeScript source in the monorepo.
+  transpilePackages: ["@texpr/shared"],
 };
 
 export default nextConfig;

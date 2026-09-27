@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -27,6 +28,24 @@ function label(rev: RepoRevision) {
  * someone without access to that repo.
  */
 export async function assertCanRead(rev: RepoRevision, token: string | undefined) {
+  // One page view fetches up to three PDFs; don't ask GitHub three times.
+  const key = crypto
+    .createHash("sha256")
+    .update(JSON.stringify([token ?? "", rev.owner.toLowerCase(), rev.repo.toLowerCase(), rev.sha]))
+    .digest("hex");
+  const until = accessCache.get(key);
+  if (until !== undefined && until > Date.now()) return;
+
+  await checkAccess(rev, token);
+  if (accessCache.size >= 5000) accessCache.clear();
+  accessCache.set(key, Date.now() + ACCESS_TTL_MS);
+}
+
+/** Recent successful access checks: hash(token, repo, sha) → expiry time. */
+const accessCache = new Map<string, number>();
+const ACCESS_TTL_MS = 10 * 60 * 1000;
+
+async function checkAccess(rev: RepoRevision, token: string | undefined) {
   const res = await fetch(`${API}/repos/${rev.owner}/${rev.repo}/commits/${rev.sha}`, {
     method: "GET",
     headers: headers(token),
@@ -47,10 +66,12 @@ export async function assertCanRead(rev: RepoRevision, token: string | undefined
 
 /** Download the commit's tarball to `dest`, refusing anything over the size cap. */
 export async function downloadTarball(rev: RepoRevision, token: string | undefined, dest: string) {
-  const res = await fetch(`${API}/repos/${rev.owner}/${rev.repo}/tarball/${rev.sha}`, {
-    headers: headers(token),
-    redirect: "follow",
-  });
+  // Without a token, go straight to codeload (where the API redirects anyway),
+  // which doesn't count against the 60/hour unauthenticated API limit.
+  const url = token
+    ? `${API}/repos/${rev.owner}/${rev.repo}/tarball/${rev.sha}`
+    : `https://codeload.github.com/${rev.owner}/${rev.repo}/tar.gz/${rev.sha}`;
+  const res = await fetch(url, { headers: headers(token), redirect: "follow" });
   if (!res.ok || !res.body) {
     throw new JobError(
       res.status === 404 ? "not_found" : "internal",

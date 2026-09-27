@@ -1,18 +1,27 @@
+import { OpenPrForm } from "@/components/OpenPrForm";
+
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-6 py-24">
-      <h1 className="text-4xl font-semibold tracking-tight">TeXPR</h1>
-      <p className="text-lg text-zinc-600 dark:text-zinc-400">
-        See the compiled PDF of any LaTeX pull request, and compare it with the
-        base branch, without checking anything out.
-      </p>
-      <p className="text-zinc-600 dark:text-zinc-400">
-        Swap <code className="font-mono">github.com</code> for this site in any
-        PR link:
-      </p>
-      <pre className="overflow-x-auto rounded-lg bg-zinc-100 p-4 font-mono text-sm dark:bg-zinc-900">
-        github.com/owner/repo/pull/12{"\n"}→ texpr.dev/owner/repo/pull/12
-      </pre>
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-10 px-4 py-20 sm:px-6">
+      <div className="flex flex-col gap-4">
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">See the PDF, not just the diff.</h1>
+        <p className="text-lg leading-8 text-zinc-600 dark:text-zinc-400">
+          TeXPR compiles the LaTeX in a GitHub pull request and shows the PDF before and after, side by side, overlaid,
+          or with every change marked up. No cloning, no checking out branches.
+        </p>
+      </div>
+
+      <OpenPrForm />
+
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Or swap <code className="font-mono">github.com</code> for this site in any pull request link:
+        </p>
+        <pre className="overflow-x-auto rounded-lg bg-zinc-100 p-4 font-mono text-sm leading-6 dark:bg-zinc-900">
+          <span className="text-zinc-500">github.com</span>/owner/repo/pull/12{"\n"}
+          <span className="text-blue-600 dark:text-blue-400">texpr.dev</span>/owner/repo/pull/12
+        </pre>
+      </div>
     </main>
   );
 }

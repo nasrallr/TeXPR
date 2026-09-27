@@ -29,6 +29,20 @@ export interface DiffRequest {
   mainFile: string;
 }
 
+/**
+ * GET /pdf?t=<ticket> — how browsers fetch PDFs straight from the worker.
+ *
+ * The web app issues a ticket per PDF: this payload, encrypted (JWE, dir +
+ * A256GCM) with SHA-256(WORKER_SECRET) as the key. Encryption keeps the
+ * user's GitHub token unreadable; the worker still checks repo access with it.
+ */
+export type PdfTicket =
+  | { kind: "build"; revision: RepoRevision; mainFile: string; token?: string }
+  | { kind: "diff"; base: RepoRevision; head: RepoRevision; mainFile: string; token?: string };
+
+/** How long a ticket stays valid. Pages older than this need a reload. */
+export const TICKET_TTL_SECONDS = 60 * 60 * 6;
+
 export type WorkerErrorCode =
   | "bad_request"
   | "unauthorized"
