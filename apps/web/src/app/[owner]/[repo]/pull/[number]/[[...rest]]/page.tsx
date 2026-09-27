@@ -75,7 +75,7 @@ export default async function PullPage({ params, searchParams }: Props) {
         headUrl={headUrl}
         baseUrl={baseUrl}
         diffUrl={diffUrl}
-        initialView={requestedView && VIEWS.includes(requestedView) ? requestedView : "split"}
+        initialView={requestedView && VIEWS.includes(requestedView) ? requestedView : "changes"}
       />
     </Shell>
   );

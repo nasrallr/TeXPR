@@ -17,10 +17,10 @@ interface Props {
 }
 
 const VIEWS: Array<{ id: View; label: string; needsBase: boolean }> = [
-  { id: "split", label: "Side by side", needsBase: true },
-  { id: "overlay", label: "Overlay", needsBase: true },
   { id: "changes", label: "Marked-up changes", needsBase: true },
+  { id: "split", label: "Side by side", needsBase: true },
   { id: "after", label: "After only", needsBase: false },
+  { id: "overlay", label: "Overlay", needsBase: true },
 ];
 
 export function Viewer({ headUrl, baseUrl, diffUrl, initialView }: Props) {
